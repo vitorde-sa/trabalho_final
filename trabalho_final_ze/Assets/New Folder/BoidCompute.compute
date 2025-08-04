@@ -1,0 +1,95 @@
+#pragma kernel CSMain
+
+struct BoidData
+{
+    float3 position;
+    float3 velocity;
+};
+
+RWStructuredBuffer<BoidData> boids;
+uint boidCount;
+float deltaTime;
+float3 bounds;
+float velocidadeMin;
+float velocidadeMax;
+float raioDeVisao;
+float fatorCoesao;
+float fatorAlinhamento;
+float fatorSeparacao;
+
+[numthreads(64, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    if (id >= boidCount)
+        return;
+
+    BoidData me = boids[id];
+    float3 pos = me.position;
+    float3 vel = me.velocity;
+
+    float3 coesao = float3(0, 0, 0);
+    float3 alinhamento = float3(0, 0, 0);
+    float3 separacao = float3(0, 0, 0);
+    int vizinhos = 0;
+
+    for (uint i = 0; i < boidCount; i++)
+    {
+        if (i == id)
+            continue;
+        BoidData outro = boids[i];
+        float dist = distance(pos, outro.position);
+        if (dist < raioDeVisao)
+        {
+            coesao += outro.position;
+            alinhamento += outro.velocity;
+            separacao += normalize(pos - outro.position) / dist;
+            vizinhos++;
+        }
+    }
+
+    float3 aceleracao = float3(0, 0, 0);
+
+    if (vizinhos > 0)
+    {
+        coesao = coesao / vizinhos;
+        float3 dirCoesao = normalize(coesao - pos) * fatorCoesao;
+
+        alinhamento = alinhamento / vizinhos;
+        float3 dirAlinhamento = normalize(alinhamento) * fatorAlinhamento;
+
+        float3 dirSeparacao = normalize(separacao) * fatorSeparacao;
+
+        aceleracao = dirCoesao + dirAlinhamento + dirSeparacao;
+    }
+
+    vel += aceleracao * deltaTime;
+
+    float speed = length(vel);
+    if (speed > velocidadeMax)
+        vel = normalize(vel) * velocidadeMax;
+    else if (speed < velocidadeMin)
+        vel = normalize(vel) * velocidadeMin;
+
+    pos += vel * deltaTime;
+
+    // Rebater nos limites
+    if (abs(pos.x) > bounds.x)
+    {
+        vel.x *= -1;
+        pos.x = clamp(pos.x, -bounds.x, bounds.x);
+    }
+    if (abs(pos.y) > bounds.y)
+    {
+        vel.y *= -1;
+        pos.y = clamp(pos.y, -bounds.y, bounds.y);
+    }
+    if (abs(pos.z) > bounds.z)
+    {
+        vel.z *= -1;
+        pos.z = clamp(pos.z, -bounds.z, bounds.z);
+    }
+
+    me.position = pos;
+    me.velocity = vel;
+    boids[id] = me;
+}

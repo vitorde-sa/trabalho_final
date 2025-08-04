@@ -1,0 +1,83 @@
+#pragma kernel CSMain
+
+struct Boid
+{
+    float3 position;
+    float3 velocity;
+};
+
+RWStructuredBuffer<Boid> boidsBuffer;
+
+float deltaTime;
+float viewRadius;
+float avoidRadius;
+float alignmentWeight;
+float cohesionWeight;
+float separationWeight;
+float speed;
+uint boidCount;
+float3 bounds; // NOVO: limites do mundo
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= boidCount)
+        return;
+
+    Boid boid = boidsBuffer[i];
+
+    float3 alignment = float3(0, 0, 0);
+    float3 cohesion = float3(0, 0, 0);
+    float3 separation = float3(0, 0, 0);
+    int neighborCount = 0;
+
+    for (uint j = 0; j < boidCount; j++)
+    {
+        if (i == j)
+            continue;
+        Boid other = boidsBuffer[j];
+        float3 offset = other.position - boid.position;
+        float dist = length(offset);
+
+        if (dist < viewRadius)
+        {
+            alignment += other.velocity;
+            cohesion += other.position;
+            if (dist < avoidRadius)
+                separation -= normalize(offset) / dist;
+            neighborCount++;
+        }
+    }
+    
+    if (neighborCount > 0)
+    {
+        alignment = normalize(alignment / neighborCount) * alignmentWeight;
+        cohesion = normalize((cohesion / neighborCount - boid.position)) * cohesionWeight;
+        separation *= separationWeight;
+    }
+
+    float3 acceleration = alignment + cohesion + separation;
+    boid.velocity += acceleration * deltaTime;
+    boid.velocity = normalize(boid.velocity) * speed;
+    boid.position += boid.velocity * deltaTime;
+
+    // Rebote ao ultrapassar os limites
+    if (abs(boid.position.x) > bounds.x)
+    {
+        boid.velocity.x *= -1;
+        boid.position.x = sign(boid.position.x) * bounds.x;
+    }
+    if (abs(boid.position.y) > bounds.y)
+    {
+        boid.velocity.y *= -1;
+        boid.position.y = sign(boid.position.y) * bounds.y;
+    }
+    if (abs(boid.position.z) > bounds.z)
+    {
+        boid.velocity.z *= -1;
+        boid.position.z = sign(boid.position.z) * bounds.z;
+    }
+
+    boidsBuffer[i] = boid;
+}
